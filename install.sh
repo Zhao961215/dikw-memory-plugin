@@ -2,12 +2,18 @@
 # install.sh — DIKW Memory Plugin 一键安装
 # 用法: curl -fsSL <raw-url> | bash
 # 或:   bash install.sh
+# 版本: v1.0.1 (fix: user-installed path compatibility + directory rename)
 set -euo pipefail
 
 REPO="Zhao961215/dikw-memory-plugin"
 PLUGIN_NAME="dikw"
-BUNDLED_DIR="${HERMES_HOME:-$HOME/.hermes}/hermes-agent/plugins/memory/$PLUGIN_NAME"
-HERMES_BIN="${HERMES_HOME:-$HOME/.hermes}/hermes-agent/venv/bin/hermes"
+# hermes plugins install 默认目录名 = repo 名（dikw-memory-plugin）
+# find_provider_dir 需要目录名 = provider 名（dikw）→ 需重命名
+INSTALLED_DIR="${HERMES_HOME:-$HOME/.hermes}/plugins/dikw-memory-plugin"
+TARGET_DIR="${HERMES_HOME:-$HOME/.hermes}/plugins/$PLUGIN_NAME"
+HERMES_HOME_DIR="${HERMES_HOME:-$HOME/.hermes}"
+BUNDLED_DIR="$HERMES_HOME_DIR/hermes-agent/plugins/memory/$PLUGIN_NAME"
+HERMES_BIN="$HERMES_HOME_DIR/hermes-agent/venv/bin/hermes"
 ENV_FILE="$HOME/.hermes/.env"
 
 RED='\033[31m'
@@ -53,12 +59,23 @@ if $HERMES_CMD plugins list 2>/dev/null | grep -q "$PLUGIN_NAME"; then
 fi
 
 # ── 安装插件 ──────────────────────────────────────
-echo -e "${YELLOW}[3/4]${NC} 从 GitHub 安装..."
+echo -e "${YELLOW}[3/5]${NC} 从 GitHub 安装..."
 $HERMES_CMD plugins install "$REPO" --enable
 echo -e "  ${GREEN}✓${NC} 插件已安装"
 
+# ── 重命名目录（hermes plugins install → dikw-memory-plugin，需改为 dikw）─
+echo -e "${YELLOW}[4/5]${NC} 配置插件目录..."
+if [ -d "$INSTALLED_DIR" ] && [ ! -d "$TARGET_DIR" ]; then
+    mv "$INSTALLED_DIR" "$TARGET_DIR"
+    echo -e "  ${GREEN}✓${NC} 目录已重命名: dikw-memory-plugin → dikw"
+elif [ -d "$TARGET_DIR" ]; then
+    echo -e "  ${GREEN}✓${NC} 目录已存在"
+else
+    echo -e "  ${YELLOW}⚠${NC} 未找到安装目录，跳过重命名"
+fi
+
 # ── 配置 .env ─────────────────────────────────────
-echo -e "${YELLOW}[4/4]${NC} 配置环境变量..."
+echo -e "${YELLOW}[5/5]${NC} 配置环境变量..."
 if [ -f "$ENV_FILE" ]; then
     if grep -q "HERMES_MEMORY_PROVIDER=" "$ENV_FILE"; then
         sed -i.bak "s/^HERMES_MEMORY_PROVIDER=.*/HERMES_MEMORY_PROVIDER=dikw/" "$ENV_FILE"
