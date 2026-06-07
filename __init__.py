@@ -84,6 +84,38 @@ class DIKWMemoryProvider(MemoryProvider):
         # E3 升级: initialize 时清空委托缓存（下次 _get_delegate 重新实例化）
         self._delegate = None
 
+    # ------------------------------------------------------------------
+    # 模块导入辅助（兼容 bundled + user-installed 两种路径）
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _import_sibling(name: str):
+        """从同级目录导入模块（兼容 bundled + user-installed 路径）
+
+        Bundled: __package__ = 'plugins.memory.dikw' → 相对导入 OK
+        User-installed: __package__ 为 None → 改用 __file__ 文件路径导入
+        """
+        import importlib, importlib.util, sys
+
+        # 路径 1: 相对包导入（bundled 路径）
+        try:
+            return importlib.import_module(f'.{name}', package=__package__)
+        except (ImportError, ValueError, TypeError):
+            pass
+
+        # 路径 2: 文件路径导入（user-installed 路径）
+        sibling_path = Path(__file__).parent / f'{name}.py'
+        mod_name = f'dikw.{name}'
+        if mod_name in sys.modules:
+            return sys.modules[mod_name]
+        if not sibling_path.exists():
+            raise ImportError(f"Cannot find {name}.py alongside __init__.py")
+        spec = importlib.util.spec_from_file_location(mod_name, str(sibling_path))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """M2.2: 委托 tools.py 返回 4 schema（核心 ≤850 行 X2 决策）
 
@@ -95,12 +127,14 @@ class DIKWMemoryProvider(MemoryProvider):
 
         X2 拆分：核心只保留委托逻辑（10 行），4 schema + 路由在 tools.py
         """
-        from .tools import get_tool_schemas as _get_schemas
-        return _get_schemas()
+        _tools = self._import_sibling('tools')
+        return _tools.get_tool_schemas()
+
+    # === 4 个 abstract 必实现（续）—— handle_tool_call override ===
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
         """M2.2 修复（2026-06-07 B 方案）：override 基类 NotImplementedError，让 4 schema 可被 memory_manager 调到。"""
-        from . import tools as _tools
+        _tools = self._import_sibling('tools')
         try:
             result = _tools.handle_tool_call(tool_name, args, self)
         except ValueError as e:
@@ -290,7 +324,7 @@ class DIKWMemoryProvider(MemoryProvider):
                 pass
 
         # 路径 2: 降级到 fact_queue 模块（X 拆分）
-        from . import fact_queue
+        fact_queue = self._import_sibling('fact_queue')
         return fact_queue.write_fact(
             content=content, query=query, source=source,
             timestamp=timestamp, hermes_home=self._hermes_home,
@@ -338,12 +372,12 @@ class DIKWMemoryProvider(MemoryProvider):
                 except (ValueError, TypeError):
                     continue
             if expired:
-                from . import fact_queue
+                fact_queue = self._import_sibling('fact_queue')
                 return fact_queue.migrate_results(expired, max_age_days, self._hermes_home)
             return 0
 
         # 路径 2: 降级到 fact_queue 模块（X 拆分）
-        from . import fact_queue
+        fact_queue = self._import_sibling('fact_queue')
         return fact_queue.migrate_queue(max_age_days, self._hermes_home)
 
     # ------------------------------------------------------------------
