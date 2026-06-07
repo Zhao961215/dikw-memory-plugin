@@ -25,63 +25,84 @@ curl -fsSL https://raw.githubusercontent.com/Zhao961215/dikw-memory-plugin/main/
 
 ```bash
 # 1. 安装插件
-hermes plugins install Zhao961215/dikw-memory-plugin
-hermes plugins enable dikw
+hermes plugins install Zhao961215/dikw-memory-plugin --enable
 
-# 2. 配置环境变量
+# 2. 重命名目录（hermes plugins install 默认目录名 = dikw-memory-plugin）
+mv ~/.hermes/plugins/dikw-memory-plugin ~/.hermes/plugins/dikw
+
+# 3. 配置环境变量
 echo "HERMES_MEMORY_PROVIDER=dikw" >> ~/.hermes/.env
 
-# 3. 重启
+# 4. 如果已有 bundled DIKW，先移除（备份后）
+# rm -rf ~/.hermes/hermes-agent/plugins/memory/dikw
+
+# 5. 重启
 hermes gateway restart
 ```
 
 ## 验证
 
 ```bash
-# 检查插件状态
+# 查看插件状态
 hermes plugins list | grep dikw
-# → dikw  enabled  ...
 
-# 检查记忆系统
+# 查看记忆状态
 hermes memory status
+
+# 在对话中测试 fact_store 工具可用性
 ```
 
-## 目录结构
+## 工具概览
 
-```
-~/.hermes/plugins/dikw/
-├── __init__.py      # 核心：DIKWMemoryProvider（继承 MemoryProvider ABC）
-├── fact_queue.py    # 异步事实队列
-├── tools.py         # 工具 schema（fact_store / fact_feedback / dikw_dispatch）
-├── install.sh       # 一键安装脚本
-└── tests/           # 85 项测试（M0 E1 → M2 step3 全覆盖）
-```
+| 工具 | 功能 | 来源 |
+|------|------|------|
+| `fact_store` | 存事实 + 搜记忆（FTS5 + HRR 双引擎）| Holographic backend |
+| `fact_feedback` | 给事实打分（校准信任度）| Holographic backend |
+| `dikw_dispatch` | DIKW 分流主入口（D/I/K/W/L 5 类）| DIKW |
+| `run_information_flow` | 12 步信息流主流程 | DIKW |
+| `add_with_timestamp` | 带 3 时间字段的 fact 写入 | DIKW |
+| `migrate_expired_to_vault` | 过期事实迁移到图书馆 | DIKW |
 
-## 工作原理
+## 版本
 
-```
-指令 → Agent → 大脑（Holographic）→ 图书馆 5 层
-  ↓
-踩坑经验 → 知识库 → 近期对话 → 缓存点 → 网络搜索
-  ↓
-Plan 拆解 → 工具选择 → 处理数据 → 反馈 → DIKW 分流 → 迭代
-```
-
-## 依赖
-
-- **Hermes Agent** ≥ v0.15
-- **Holographic 插件**（Hermes 内置，自动启用）
-- **零外部服务**：纯 SQLite，不需要 Docker / API / MCP
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| **v1.0.1** | 2026-06-07 | 修复 user-installed 路径下相对导入失败（`_hermes_user_memory` 模块找不到），新增 `_import_sibling()` 兼容 bundled + user-installed 两种部署路径 |
+| v1.0.0 | 2026-06-07 | 首次发布：从 bundled plugin 拆分为独立仓库 |
 
 ## 回滚
 
 ```bash
 hermes plugins remove dikw
-# 恢复 .env 中的 HERMES_MEMORY_PROVIDER 为 holographic
-sed -i 's/HERMES_MEMORY_PROVIDER=dikw/HERMES_MEMORY_PROVIDER=holographic/' ~/.hermes/.env
+# 如需恢复 bundled DIKW:
+# cp -r /path/to/backup/dikw ~/.hermes/hermes-agent/plugins/memory/dikw
 hermes gateway restart
 ```
 
-## 许可
+## 架构
+
+```
+~/.hermes/plugins/dikw/           ← user-installed 路径
+├── __init__.py                   ← DIKWMemoryProvider（MemoryProvider ABC 子类）
+├── tools.py                      ← 4 工具 schema + 路由
+├── fact_queue.py                 ← fact 队列降级模块
+├── tests/                        ← 测试套件（E1/E2/E3/M1/M2）
+│   ├── test_e1.py                ← M0 单文件骨架验证
+│   ├── test_e2.py                ← E2 config 激活验证
+│   ├── test_e3.py                ← E3 delegate 委托验证
+│   ├── test_m1.py                ← M1 dikw_dispatch 4 方法
+│   ├── test_m1_step2.py          ← M1 图书馆检索 5 辅助函数
+│   ├── test_m1_step3.py          ← M1 run_information_flow 12 步
+│   ├── test_m1_step4.py          ← M1 DIKW 分流闭环
+│   ├── test_m2_step1.py          ← M2 get_tool_schemas
+│   ├── test_m2_step2.py          ← M2 handle_tool_call
+│   ├── test_m2_step3.py          ← M2 add_with_timestamp + migrate
+│   ├── test_m2_fix_bug.py        ← M2 bug fix validation
+│   └── test_integration_real.py   ← 集成测试
+├── install.sh                    ← 一键安装脚本
+└── README.md                     ← 本文件
+```
+
+## License
 
 MIT
